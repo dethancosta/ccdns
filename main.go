@@ -1,7 +1,12 @@
 package main
 
 import (
+	"crypto/rand"
 	"encoding/binary"
+	"encoding/hex"
+	"flag"
+	"fmt"
+	"net"
 	"strings"
 )
 
@@ -88,4 +93,60 @@ func encodeName(qname string) []byte {
 type field struct {
 	size byte
 	value []byte
+}
+
+func BuildQuery(name string) ([]byte, error) {
+
+	vBytes := make([]byte, 2)
+	_, err := rand.Read(vBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	h := NewHeader()
+	h.SetID(binary.BigEndian.Uint16(vBytes))
+	h.SetFlags(0b0000000100000000)
+	h.SetCounts(1,0,0,0)
+
+	q := NewQuestionSection(name,1,1)
+	msg := append(h.b[:], q...)
+
+	return msg, nil
+}
+
+func haveSameId(id1, id2 [2]byte) bool {
+	return id1[0] == id2[0] && id1[1] == id2[1]
+}
+
+func main() {
+	ipAddr := flag.String("a", "", "The address to send the DNS query to")
+	toFind := flag.String("u", "", "The lookup address")
+	flag.Parse()
+
+	if *ipAddr == "" || *toFind == "" {
+		panic("No address provided")
+	}
+	*ipAddr = *ipAddr + ":53"
+	conn, err := net.Dial("udp", *ipAddr)
+	handleErr(err)
+	defer conn.Close()
+
+	query, err := BuildQuery(*toFind)
+	handleErr(err)
+
+	fmt.Println("ID: ", hex.EncodeToString(query[:2]))
+	fmt.Println("Query: ", hex.EncodeToString(query))
+	_, err = conn.Write(query)
+	handleErr(err)
+
+	reply := make([]byte, 1024)
+	_, err = conn.Read(reply)
+	handleErr(err)
+	fmt.Println("Reply: ", hex.EncodeToString(reply))
+}
+
+func handleErr(err error) {
+	if err != nil {
+		panic(err)
+	}
 }
